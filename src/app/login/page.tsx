@@ -60,7 +60,6 @@ export default function LoginPage() {
                 });
                 if (error) throw error;
                 router.push('/dashboard');
-                router.refresh();
             }
         } catch (err: any) {
             if (err.message && (err.message.includes('already registered') || err.message.includes('User already registered'))) {

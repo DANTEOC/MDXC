@@ -31,9 +31,18 @@ export async function updateSession(request: NextRequest) {
         }
     );
 
+    // Important: getUser() will automatically refresh the session if it's expired
+    // but only if a refresh token is available in cookies.
     const {
         data: { user },
+        error
     } = await supabase.auth.getUser();
+
+    // If there's an error with the refresh token, it's usually because it's stale/invalid.
+    // In dev, this is common when the database is reset.
+    if (error && error.name === 'AuthApiError' && error.message.includes('Refresh Token Not Found')) {
+        // We can ignore this error safely as 'user' will be null and the logic below will handle it.
+    }
 
     // PROTECTED ROUTES LOGIC
     // 1. If no user and trying to access protected routes, redirect to login

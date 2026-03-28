@@ -31,19 +31,19 @@ export default function DocumentsHubPage() {
                     </Button>
                 </div>
 
-                {/* Card for Vault (Phase 3 Placeholder) */}
-                <div className="p-6 rounded-xl border border-neutral-200 bg-neutral-50 shadow-sm flex flex-col justify-between gap-4 opacity-75">
+                {/* Card for Vault */}
+                <div className="p-6 rounded-xl border border-neutral-200 bg-white shadow-sm flex flex-col justify-between gap-4 group hover:border-emerald-500 transition-colors">
                     <div className="space-y-2">
-                        <div className="h-10 w-10 rounded-lg bg-neutral-200 text-neutral-500 flex items-center justify-center">
+                        <div className="h-10 w-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                             <FileText className="h-6 w-6" />
                         </div>
-                        <h3 className="text-lg font-medium text-neutral-900">Bóveda Digital</h3>
+                        <h3 className="text-lg font-medium text-neutral-900 group-hover:text-emerald-700">Bóveda Digital</h3>
                         <p className="text-sm text-neutral-500">
-                            Repositorio central de documentos digitalizados (Próximamente Fase 3).
+                            Repositorio inmutable de documentos digitalizados por Proyecto.
                         </p>
                     </div>
-                    <Button disabled variant="secondary" className="w-full">
-                        Próximamente
+                    <Button asChild variant="outline" className="w-full">
+                        <Link href="/projects">Ir a Proyectos</Link>
                     </Button>
                 </div>
             </div>

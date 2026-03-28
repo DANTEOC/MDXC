@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProjectCommunication } from '@/components/projects/ProjectCommunication';
 import { ProjectTasks } from '@/components/projects/ProjectTasks';
+import { ProjectVault } from '@/components/projects/ProjectVault';
 
 export default function ProjectDetailPage() {
     const { id } = useParams();
@@ -107,6 +108,7 @@ export default function ProjectDetailPage() {
             <Tabs defaultValue="documents" className="w-full">
                 <TabsList className="mb-4">
                     <TabsTrigger value="documents">Expediente Digital</TabsTrigger>
+                    <TabsTrigger value="vault">Bóveda Digital</TabsTrigger>
                     <TabsTrigger value="chat">Comunicación</TabsTrigger>
                     <TabsTrigger value="tasks">Tareas y Pendientes</TabsTrigger>
                 </TabsList>
@@ -198,6 +200,10 @@ export default function ProjectDetailPage() {
 
                 <TabsContent value="tasks">
                     <ProjectTasks projectId={project.id} />
+                </TabsContent>
+
+                <TabsContent value="vault">
+                    <ProjectVault projectId={project.id} currentUserRole={currentUserRole} />
                 </TabsContent>
 
             </Tabs>

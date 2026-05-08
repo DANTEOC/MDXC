@@ -53,15 +53,21 @@ const getSupabase = async () => {
     );
 };
 
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
 const VAULT_MANAGER_ROLES = new Set(['ADMIN', 'SUPERVISOR', 'DIRECTOR']);
 
-async function getAuthenticatedUser(supabase: any) {
+function getErrorMessage(error: unknown, fallback: string) {
+    return error instanceof Error ? error.message : fallback;
+}
+
+async function getAuthenticatedUser(supabase: SupabaseServerClient) {
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) throw new Error("Unauthorized");
     return user;
 }
 
-async function requireVaultManager(supabase: any) {
+async function requireVaultManager(supabase: SupabaseServerClient) {
     const user = await getAuthenticatedUser(supabase);
 
     const { data: profile, error } = await supabase
@@ -377,9 +383,9 @@ export async function getVaultDocumentSignedUrl(filePath: string) {
         }
 
         return { success: true, signedUrl: data.signedUrl };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Signed URL error:", error);
-        return { success: false, error: error.message || "No se pudo abrir el archivo." };
+        return { success: false, error: getErrorMessage(error, "No se pudo abrir el archivo.") };
     }
 }
 

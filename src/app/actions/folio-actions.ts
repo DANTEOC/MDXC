@@ -22,9 +22,11 @@ const getSupabase = async () => {
     );
 };
 
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
 const VAULT_MANAGER_ROLES = new Set(['ADMIN', 'SUPERVISOR', 'DIRECTOR']);
 
-async function requireVaultManager(supabase: any) {
+async function requireVaultManager(supabase: SupabaseServerClient) {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) throw new Error("Unauthorized");
 

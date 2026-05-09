@@ -14,8 +14,22 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, getVaultDocumentVersionSignedUrl } from '@/app/actions/vault-actions';
+import {
+    getDocumentVersionHistory,
+    getVaultDocumentVersionSignedUrl,
+    type VaultDocumentVersion,
+} from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+type VersionHistoryItem = VaultDocumentVersion & {
+    uploader?: {
+        full_name?: string | null;
+        role?: string | null;
+    } | null;
+    validator?: {
+        full_name?: string | null;
+    } | null;
+};
 
 interface VaultHistoryModalProps {
     vaultDocumentId: string;
@@ -24,7 +38,7 @@ interface VaultHistoryModalProps {
 
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
@@ -54,10 +68,10 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
             if (result.success && result.signedUrl) {
                 window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
             } else {
-                alert(result.error || 'No se pudo abrir el archivo.');
+                alert('error' in result ? result.error : 'No se pudo abrir el archivo.');
             }
-        } catch (error: any) {
-            alert(error.message || 'No se pudo abrir el archivo.');
+        } catch (error: unknown) {
+            alert(error instanceof Error ? error.message : 'No se pudo abrir el archivo.');
         } finally {
             setOpeningVersionId(null);
         }

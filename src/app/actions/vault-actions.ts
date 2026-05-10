@@ -4,6 +4,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
+const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'];
+
 // Tipos base para la Bóveda
 export interface VaultDocument {
   id: string;
@@ -52,6 +54,45 @@ const getSupabase = async () => {
         }
     );
 };
+
+async function requireVaultManager(supabase: Awaited<ReturnType<typeof getSupabase>>) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
+
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !profile || !VAULT_MANAGER_ROLES.includes(profile.role)) {
+        throw new Error("No tienes permisos para modificar la bóveda.");
+    }
+
+    return user;
+}
+
+function isPdfFileName(fileName: string | null | undefined) {
+    return fileName?.toLowerCase().endsWith('.pdf') ?? false;
+}
+
+async function removeVaultFile(supabase: Awaited<ReturnType<typeof getSupabase>>, filePath: string) {
+    const { error } = await supabase.storage.from('vault').remove([filePath]);
+    if (error) {
+        console.error(`Error limpiando archivo de bóveda ${filePath}:`, error);
+    }
+}
+
+async function deleteFailedVaultDocument(supabase: Awaited<ReturnType<typeof getSupabase>>, vaultDocumentId: string) {
+    const { error } = await supabase
+        .from('vault_documents')
+        .delete()
+        .eq('id', vaultDocumentId);
+
+    if (error) {
+        console.error(`Error limpiando contenedor de bóveda ${vaultDocumentId}:`, error);
+    }
+}
 
 // -------------------------------------------------------------
 // GET: Obtener todos los documentos de la bóveda de un proyecto
@@ -138,10 +179,6 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
 // -------------------------------------------------------------
 export async function uploadVaultDocumentVersion(formData: FormData) {
     const supabase = await getSupabase();
-    
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     const file = formData.get('file') as File;
     const projectId = formData.get('projectId') as string;
@@ -153,6 +190,23 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
     }
 
     try {
+        const user = await requireVaultManager(supabase);
+
+        if (!isPdfFileName(file.name)) {
+            throw new Error("Solo se pueden subir archivos PDF a la bóveda.");
+        }
+
+        const { data: vaultDoc, error: vaultDocError } = await supabase
+            .from('vault_documents')
+            .select('id')
+            .eq('id', vaultDocumentId)
+            .eq('project_id', projectId)
+            .single();
+
+        if (vaultDocError || !vaultDoc) {
+            throw new Error("El documento de bóveda no pertenece al proyecto indicado.");
+        }
+
         // 1. Determinar el próximo número de versión
         const { data: versions, error: verError } = await supabase
             .from('vault_document_versions')
@@ -188,7 +242,10 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
                 // page_count lo extraemos luego o es opcional
             });
 
-        if (insertError) throw insertError;
+        if (insertError) {
+            await removeVaultFile(supabase, filePath);
+            throw insertError;
+        }
 
         // 4. (Opcional) Invalidar checklists u otras tareas de este proyecto asociadas a este tipo de documento.
         // Podríamos buscar project_tasks y ponerlos en "REVIEW_NEEDED".
@@ -214,24 +271,27 @@ export async function addVaultDocument(
     changeReason: string
 ) {
     const supabase = await getSupabase();
-    
-    // Solo roles autorizados pueden crear contenedores
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     if (!projectDocumentId) return { success: false, error: "Debe seleccionar un documento base" };
     if (!changeReason) return { success: false, error: "Debe proveer un motivo" };
 
     try {
+        const user = await requireVaultManager(supabase);
+
         // 1. Obtener la ruta del archivo del expediente digital
         const { data: sourceDoc, error: sourceError } = await supabase
             .from('project_documents')
             .select('file_path, file_name')
             .eq('id', projectDocumentId)
+            .eq('project_id', projectId)
             .single();
 
         if (sourceError || !sourceDoc || !sourceDoc.file_path) {
             throw new Error("No se pudo encontrar el archivo origen del documento seleccionado.");
+        }
+
+        if (!isPdfFileName(sourceDoc.file_name)) {
+            throw new Error("Solo se pueden archivar documentos PDF en la bóveda.");
         }
 
         // 2. Crear el contenedor en la bóveda
@@ -257,7 +317,10 @@ export async function addVaultDocument(
             .from('vault')
             .copy(sourceDoc.file_path, newFilePath);
 
-        if (copyError) throw copyError;
+        if (copyError) {
+            await deleteFailedVaultDocument(supabase, vaultDoc.id);
+            throw copyError;
+        }
 
         // 4. Crear la primera versión del documento
         const { error: versionError } = await supabase
@@ -270,7 +333,11 @@ export async function addVaultDocument(
                 change_reason: changeReason
             });
 
-        if (versionError) throw versionError;
+        if (versionError) {
+            await removeVaultFile(supabase, newFilePath);
+            await deleteFailedVaultDocument(supabase, vaultDoc.id);
+            throw versionError;
+        }
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };

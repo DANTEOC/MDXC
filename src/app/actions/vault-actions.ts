@@ -3,6 +3,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
+import { requireVaultManager } from './vault-permissions';
 
 // Tipos base para la Bóveda
 export interface VaultDocument {
@@ -138,10 +139,6 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
 // -------------------------------------------------------------
 export async function uploadVaultDocumentVersion(formData: FormData) {
     const supabase = await getSupabase();
-    
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     const file = formData.get('file') as File;
     const projectId = formData.get('projectId') as string;
@@ -152,7 +149,22 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         return { success: false, error: "Missing required fields" };
     }
 
+    let uploadedFilePath: string | null = null;
+
     try {
+        const user = await requireVaultManager(supabase);
+
+        const { data: vaultDocument, error: vaultDocumentError } = await supabase
+            .from('vault_documents')
+            .select('id, project_id')
+            .eq('id', vaultDocumentId)
+            .eq('project_id', projectId)
+            .single();
+
+        if (vaultDocumentError || !vaultDocument) {
+            throw new Error("El documento de bóveda no pertenece al proyecto indicado.");
+        }
+
         // 1. Determinar el próximo número de versión
         const { data: versions, error: verError } = await supabase
             .from('vault_document_versions')
@@ -175,6 +187,7 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
             .upload(filePath, file);
 
         if (uploadError) throw uploadError;
+        uploadedFilePath = filePath;
 
         // 3. Insertar el registro de la nueva versión
         const { error: insertError } = await supabase
@@ -198,6 +211,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
 
     } catch (error: any) {
         console.error("Upload error:", error);
+        if (uploadedFilePath) {
+            await supabase.storage.from('vault').remove([uploadedFilePath]);
+        }
         return { success: false, error: error.message };
     }
 }
@@ -214,20 +230,25 @@ export async function addVaultDocument(
     changeReason: string
 ) {
     const supabase = await getSupabase();
-    
-    // Solo roles autorizados pueden crear contenedores
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     if (!projectDocumentId) return { success: false, error: "Debe seleccionar un documento base" };
     if (!changeReason) return { success: false, error: "Debe proveer un motivo" };
+    if (!Number.isFinite(orderNumber) || orderNumber < 1) {
+        return { success: false, error: "El número de orden debe ser mayor o igual a 1" };
+    }
+
+    let createdVaultDocumentId: string | null = null;
+    let copiedFilePath: string | null = null;
 
     try {
+        const user = await requireVaultManager(supabase);
+
         // 1. Obtener la ruta del archivo del expediente digital
         const { data: sourceDoc, error: sourceError } = await supabase
             .from('project_documents')
-            .select('file_path, file_name')
+            .select('file_path, file_name, project_id')
             .eq('id', projectDocumentId)
+            .eq('project_id', projectId)
             .single();
 
         if (sourceError || !sourceDoc || !sourceDoc.file_path) {
@@ -247,6 +268,7 @@ export async function addVaultDocument(
             .single();
 
         if (vaultError) throw vaultError;
+        createdVaultDocumentId = vaultDoc.id;
 
         // 3. Copiar el archivo en Storage a la ruta versionada
         const fileExt = sourceDoc.file_name ? sourceDoc.file_name.split('.').pop() : 'pdf';
@@ -258,6 +280,7 @@ export async function addVaultDocument(
             .copy(sourceDoc.file_path, newFilePath);
 
         if (copyError) throw copyError;
+        copiedFilePath = newFilePath;
 
         // 4. Crear la primera versión del documento
         const { error: versionError } = await supabase
@@ -276,6 +299,12 @@ export async function addVaultDocument(
         return { success: true, data: vaultDoc };
     } catch (error: any) {
         console.error("Add Vault Document Error:", error);
+        if (copiedFilePath) {
+            await supabase.storage.from('vault').remove([copiedFilePath]);
+        }
+        if (createdVaultDocumentId) {
+            await supabase.from('vault_documents').delete().eq('id', createdVaultDocumentId);
+        }
         return { success: false, error: error.message };
     }
 }

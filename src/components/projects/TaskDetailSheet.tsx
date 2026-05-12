@@ -22,6 +22,8 @@ export function TaskDetailSheet({ task, onUpdate, trigger, userRole }: TaskDetai
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const router = useRouter();
+    const hasConfidentialFields = task.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL');
+    const isAnalyst = userRole === 'ANALYST';
 
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -243,7 +245,7 @@ export function TaskDetailSheet({ task, onUpdate, trigger, userRole }: TaskDetai
                 </SheetHeader>
 
                 {/* SECURITY ALERT */}
-                {userRole === 'ANALISTA' && task.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL') && (
+                {isAnalyst && hasConfidentialFields && (
                     <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-800 text-sm">
                         <AlertCircle className="h-4 w-4" />
                         <span>Documento Confidencial. Solo Supervisores.</span>
@@ -310,7 +312,7 @@ export function TaskDetailSheet({ task, onUpdate, trigger, userRole }: TaskDetai
                                     size="icon"
                                     className="h-6 w-6 hover:bg-blue-100"
                                     onClick={handleViewDocument}
-                                    disabled={loading || (userRole === 'ANALISTA' && task.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL'))}
+                                    disabled={loading || (isAnalyst && hasConfidentialFields)}
                                     title="Ver documento"
                                 >
                                     {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
@@ -336,7 +338,7 @@ export function TaskDetailSheet({ task, onUpdate, trigger, userRole }: TaskDetai
                                 size="lg"
                                 className="w-full bg-amber-500 hover:bg-amber-600 text-white shadow-md font-semibold text-base transition-all"
                                 onClick={handleNavigateToValidation}
-                                disabled={userRole === 'ANALISTA' && task.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL')}
+                                disabled={isAnalyst && hasConfidentialFields}
                             >
                                 <FileText className="h-5 w-5 mr-2" />
                                 Revisar Datos y Validación

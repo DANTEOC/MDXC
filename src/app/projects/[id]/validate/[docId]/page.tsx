@@ -140,7 +140,7 @@ export default function ValidateDocumentPage() {
 
             // SECURITY CHECK: Confidential Documents
             // If ANY field is CONFIDENTIAL, strict access for ANALYSTS is PROHIBITED.
-            const hasConfidentialFields = doc.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL');
+            const hasConfidentialFields = doc.definition?.fields?.some((f: { sensitivity?: string }) => f.sensitivity === 'CONFIDENTIAL');
             if (role === 'ANALYST' && hasConfidentialFields) {
                 alert('⛔ ACCESO DENEGADO\n\nEste documento contiene información confidencial restringida para analistas.\nDebe ser validado por un Supervisor o Director.');
                 router.push(`/admin/projects/${projectId}`); // Redirect
@@ -939,7 +939,7 @@ export default function ValidateDocumentPage() {
                         )}
 
                         {document.definition.fields
-                            .filter((f: any) => currentUserRole !== 'ANALYST' || f.is_visible_to_analyst)
+                            .filter((f: { is_visible_to_analyst?: boolean }) => currentUserRole !== 'ANALYST' || f.is_visible_to_analyst)
                             .map((field: any) => {
                                 // Compute Header Map for this field (should be memoized ideally, but fast enough here)
                                 // CRITICAL FIX: Match the logic used in handleRetryAI - STRICT key check only.

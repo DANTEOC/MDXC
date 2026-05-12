@@ -22,7 +22,7 @@ export function TaskDetailSheet({ task, onUpdate, trigger, userRole }: TaskDetai
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const router = useRouter();
-    const hasConfidentialFields = task.definition?.fields?.some((f: any) => f.sensitivity === 'CONFIDENTIAL');
+    const hasConfidentialFields = task.definition?.fields?.some((f: { sensitivity?: string }) => f.sensitivity === 'CONFIDENTIAL');
     const isAnalyst = userRole === 'ANALYST';
 
     const supabase = createBrowserClient(

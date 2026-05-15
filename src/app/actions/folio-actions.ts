@@ -22,11 +22,33 @@ const getSupabase = async () => {
     );
 };
 
+const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'] as const;
+
+function isVaultManagerRole(role: string | null | undefined) {
+    return VAULT_MANAGER_ROLES.includes(role as (typeof VAULT_MANAGER_ROLES)[number]);
+}
+
+async function requireVaultManager(supabase: Awaited<ReturnType<typeof getSupabase>>) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
+
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !isVaultManagerRole(profile?.role)) {
+        throw new Error("Forbidden");
+    }
+}
+
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireVaultManager(supabase);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);
@@ -36,12 +58,16 @@ export async function generateProjectFolios(projectId: string) {
     }
 
     let globalPageNumber = 1;
-    const foliatedFiles = [];
+    const foliatedFiles: string[] = [];
+    const failures: string[] = [];
 
     // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion || !latestVersion.file_path) {
+            failures.push(`${doc.name}: no tiene una versión con archivo`);
+            continue;
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -50,7 +76,8 @@ export async function generateProjectFolios(projectId: string) {
 
         if (downloadError || !fileData) {
             console.error(`Error descargando ${doc.name}:`, downloadError);
-            continue; // Skip si hay error (podría ser un archivo corrupto)
+            failures.push(`${doc.name}: no se pudo descargar el archivo`);
+            continue;
         }
 
         const arrayBuffer = await fileData.arrayBuffer();
@@ -95,17 +122,20 @@ export async function generateProjectFolios(projectId: string) {
 
             if (uploadError) {
                 console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
+                failures.push(`${doc.name}: no se pudo subir el PDF foliado`);
             } else {
                 foliatedFiles.push(newFilePath);
             }
 
         } catch (pdfError) {
             console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
-            // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
+            failures.push(`${doc.name}: no se pudo foliar como PDF`);
         }
     }
 
-    // 3. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
+    if (failures.length > 0) {
+        throw new Error(`No se pudo completar el foliado de todos los documentos: ${failures.join('; ')}`);
+    }
 
     return { 
         success: true, 

@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Upload, Lock, Clock, History, FileCheck } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { Lock, FileCheck } from 'lucide-react';
 import { generateProjectFolios } from '@/app/actions/folio-actions';
-import { getProjectVaultDocuments } from '@/app/actions/vault-actions';
+import { getProjectVaultDocuments, type VaultDocument, type VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { VaultHistoryModal } from './VaultHistoryModal';
 import { VaultUploadModal } from './VaultUploadModal';
 import { AddVaultDocumentModal } from './AddVaultDocumentModal';
@@ -18,30 +17,38 @@ interface ProjectVaultProps {
     currentUserRole: string | null;
 }
 
+type ProjectVaultDocument = VaultDocument & {
+    latest_version?: VaultDocumentVersion | null;
+};
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : 'Error desconocido';
+}
+
 export function ProjectVault({ projectId, currentUserRole }: ProjectVaultProps) {
-    const [documents, setDocuments] = useState<any[]>([]);
+    const [documents, setDocuments] = useState<ProjectVaultDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
 
     const isSupervisorOrAdmin = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'].includes(currentUserRole || '');
 
-    const loadDocuments = async () => {
+    const loadDocuments = useCallback(async () => {
         setLoading(true);
         try {
             const docs = await getProjectVaultDocuments(projectId);
-            setDocuments(docs || []);
+            setDocuments((docs || []) as ProjectVaultDocument[]);
         } catch (error) {
             console.error(error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [projectId]);
 
     useEffect(() => {
         if (projectId) {
             loadDocuments();
         }
-    }, [projectId]);
+    }, [projectId, loadDocuments]);
 
     const handleGenerateFolios = async () => {
         if (!confirm("¿Generar foliado maestro? Se reemplazarán los folios anteriores si existen.")) return;
@@ -51,9 +58,11 @@ export function ProjectVault({ projectId, currentUserRole }: ProjectVaultProps) 
             if (res.success) {
                 alert(res.message);
                 loadDocuments(); // Recargar por si algo cambia
+            } else {
+                alert(res.message || "No se pudo completar el foliado.");
             }
-        } catch (error: any) {
-            alert(error.message || "Error al generar foliado");
+        } catch (error: unknown) {
+            alert(getErrorMessage(error) || "Error al generar foliado");
         } finally {
             setGenerating(false);
         }

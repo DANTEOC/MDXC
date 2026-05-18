@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
@@ -15,8 +15,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );

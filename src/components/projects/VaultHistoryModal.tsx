@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { createVaultDocumentSignedUrl, getDocumentVersionHistory } from '@/app/actions/vault-actions';
+import { createVaultDocumentSignedUrl, getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -22,9 +22,14 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VaultHistoryVersion = VaultDocumentVersion & {
+    uploader?: { full_name?: string; role?: string };
+    validator?: { full_name?: string };
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VaultHistoryVersion[]>([]);
     const [loading, setLoading] = useState(false);
     const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
@@ -47,7 +52,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         }
     };
 
-    const handleOpenFile = async (version: any) => {
+    const handleOpenFile = async (version: VaultHistoryVersion) => {
         if (!version.file_path) return;
 
         setOpeningVersionId(version.id);
@@ -59,9 +64,9 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
             }
 
             window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            alert(error.message || 'Error al abrir el archivo.');
+            alert(error instanceof Error ? error.message : 'Error al abrir el archivo.');
         } finally {
             setOpeningVersionId(null);
         }

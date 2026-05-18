@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
+import { createVaultDocumentSignedUrl, getDocumentVersionHistory } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -26,6 +26,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
     const [open, setOpen] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
     const loadHistory = async () => {
         setLoading(true);
@@ -43,6 +44,26 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setOpen(isOpen);
         if (isOpen) {
             loadHistory();
+        }
+    };
+
+    const handleOpenFile = async (version: any) => {
+        if (!version.file_path) return;
+
+        setOpeningVersionId(version.id);
+        try {
+            const result = await createVaultDocumentSignedUrl(version.file_path);
+
+            if (!result.success || !result.signedUrl) {
+                throw new Error(result.error || 'No se pudo abrir el archivo.');
+            }
+
+            window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
+        } catch (error: any) {
+            console.error(error);
+            alert(error.message || 'Error al abrir el archivo.');
+        } finally {
+            setOpeningVersionId(null);
         }
     };
 
@@ -86,10 +107,14 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                     Subido el {format(new Date(version.uploaded_at), "d 'de' MMMM, yyyy 'a las' HH:mm", { locale: es })}
                                                 </p>
                                             </div>
-                                            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                                                <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/vault/${version.file_path}`} target="_blank" rel="noreferrer">
-                                                    <FileText className="h-3 w-3 mr-1" /> Ver archivo
-                                                </a>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => handleOpenFile(version)}
+                                                disabled={!version.file_path || openingVersionId === version.id}
+                                            >
+                                                <FileText className="h-3 w-3 mr-1" /> {openingVersionId === version.id ? 'Abriendo...' : 'Ver archivo'}
                                             </Button>
                                         </div>
 

@@ -108,6 +108,27 @@ export async function getDocumentVersionHistory(vaultDocumentId: string) {
 }
 
 // -------------------------------------------------------------
+// GET: Crear URL firmada para abrir una versión de la bóveda
+// -------------------------------------------------------------
+export async function createVaultDocumentSignedUrl(filePath: string) {
+    const supabase = await getSupabase();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Unauthorized" };
+    if (!filePath) return { success: false, error: "Missing file path" };
+
+    const { data, error } = await supabase.storage
+        .from('vault')
+        .createSignedUrl(filePath, 3600);
+
+    if (error || !data?.signedUrl) {
+        return { success: false, error: error?.message || "No se pudo generar la URL firmada" };
+    }
+
+    return { success: true, signedUrl: data.signedUrl };
+}
+
+// -------------------------------------------------------------
 // POST: Validar una versión (Solo Analistas)
 // -------------------------------------------------------------
 export async function validateDocumentVersion(versionId: string, projectId: string) {

@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory } from '@/app/actions/vault-actions';
+import { getDocumentVersionHistory, type VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { createBrowserClient } from '@supabase/ssr';
 
@@ -23,9 +23,20 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+interface VaultHistoryEntry extends VaultDocumentVersion {
+    signedUrl?: string | null;
+    uploader?: {
+        full_name?: string | null;
+        role?: string | null;
+    } | null;
+    validator?: {
+        full_name?: string | null;
+    } | null;
+}
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VaultHistoryEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const supabase = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,7 +47,8 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setLoading(true);
         try {
             const data = await getDocumentVersionHistory(vaultDocumentId);
-            const versionsWithUrls = await Promise.all((data || []).map(async (version: any) => {
+            const versions = (data || []) as VaultHistoryEntry[];
+            const versionsWithUrls = await Promise.all(versions.map(async (version) => {
                 const { data: signedUrlData, error } = await supabase.storage
                     .from('vault')
                     .createSignedUrl(version.file_path, 3600);

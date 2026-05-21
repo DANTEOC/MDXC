@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
+import type { CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
@@ -42,10 +43,10 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
@@ -55,6 +56,10 @@ const getSupabase = async () => {
 
 const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'];
 const VAULT_VALIDATOR_ROLES = [...VAULT_MANAGER_ROLES, 'ANALYST', 'ANALISTA'];
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : "Unexpected error";
+}
 
 async function requireVaultRole(supabase: Awaited<ReturnType<typeof getSupabase>>, allowedRoles: string[]) {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -96,7 +101,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -248,9 +253,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -329,7 +334,7 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Add Vault Document Error:", error);
         if (vaultDocumentIdToRollback) {
             await supabase
@@ -338,7 +343,7 @@ export async function addVaultDocument(
                 .eq('id', vaultDocumentIdToRollback)
                 .eq('project_id', projectId);
         }
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -368,11 +373,21 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return (data || []).map((doc: {
+        id: string;
+        file_name: string | null;
+        document_definitions: { name?: string } | { name?: string }[] | null;
+    }) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 

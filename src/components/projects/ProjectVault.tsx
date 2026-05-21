@@ -51,6 +51,8 @@ export function ProjectVault({ projectId, currentUserRole }: ProjectVaultProps) 
             if (res.success) {
                 alert(res.message);
                 loadDocuments(); // Recargar por si algo cambia
+            } else {
+                alert(res.message || "Error al generar foliado");
             }
         } catch (error: any) {
             alert(error.message || "Error al generar foliado");

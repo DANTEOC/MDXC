@@ -33,6 +33,11 @@ type VersionHistoryEntry = {
     validator?: { full_name?: string | null } | null;
 };
 
+type VersionHistoryRow = Omit<VersionHistoryEntry, 'uploader' | 'validator'> & {
+    uploader?: VersionHistoryEntry['uploader'] | NonNullable<VersionHistoryEntry['uploader']>[];
+    validator?: VersionHistoryEntry['validator'] | NonNullable<VersionHistoryEntry['validator']>[];
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
     const [history, setHistory] = useState<VersionHistoryEntry[]>([]);
@@ -43,7 +48,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setLoading(true);
         try {
             const data = await getDocumentVersionHistory(vaultDocumentId);
-            setHistory(data || []);
+            setHistory(((data || []) as VersionHistoryRow[]).map(normalizeHistoryRow));
         } catch (error) {
             console.error(error);
         } finally {
@@ -160,4 +165,16 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
 
 function getErrorMessage(error: unknown) {
     return error instanceof Error ? error.message : 'Error desconocido';
+}
+
+function normalizeHistoryRow(row: VersionHistoryRow): VersionHistoryEntry {
+    return {
+        ...row,
+        uploader: getFirstRelation(row.uploader),
+        validator: getFirstRelation(row.validator),
+    };
+}
+
+function getFirstRelation<T>(relation: T | T[] | null | undefined): T | null {
+    return Array.isArray(relation) ? relation[0] ?? null : relation ?? null;
 }

@@ -22,9 +22,20 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VersionHistoryEntry = {
+    id: string;
+    version_number: number;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated: boolean;
+    validated_at?: string | null;
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
 
@@ -52,9 +63,9 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         try {
             const { signedUrl } = await getVaultDocumentVersionSignedUrl(versionId);
             window.open(signedUrl, '_blank', 'noopener,noreferrer');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error);
-            alert(`Error al abrir archivo: ${error.message}`);
+            alert(`Error al abrir archivo: ${getErrorMessage(error)}`);
         } finally {
             setDownloadingVersionId(null);
         }
@@ -125,7 +136,8 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                 {version.is_validated ? (
                                                     <div className="flex items-center text-emerald-600">
                                                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                                        Validado por {version.validator?.full_name || 'Analista'} el {format(new Date(version.validated_at), "dd/MM/yyyy")}
+                                                        Validado por {version.validator?.full_name || 'Analista'}
+                                                        {version.validated_at ? ` el ${format(new Date(version.validated_at), "dd/MM/yyyy")}` : ''}
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center text-amber-600">
@@ -144,4 +156,8 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
             </DialogContent>
         </Dialog>
     );
+}
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : 'Error desconocido';
 }

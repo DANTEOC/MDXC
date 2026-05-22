@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createServerClient } from '@supabase/ssr';
+import type { CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 const GLOBAL_VAULT_ROLES = ['ADMIN', 'DIRECTOR'] as const;
@@ -24,10 +25,10 @@ export async function createSupabaseActionClient() {
                 get(name: string) {
                     return cookieStore.get(name)?.value;
                 },
-                set(name: string, value: string, options: any) {
+                set(name: string, value: string, options: CookieOptions) {
                     cookieStore.set({ name, value, ...options });
                 },
-                remove(name: string, options: any) {
+                remove(name: string, options: CookieOptions) {
                     cookieStore.delete({ name, ...options });
                 },
             },

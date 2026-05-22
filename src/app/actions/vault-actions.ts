@@ -36,6 +36,12 @@ export interface VaultDocumentVersion {
   validated_at?: string;
 }
 
+type ProjectDocumentForVault = {
+    id: string;
+    file_name: string | null;
+    document_definitions?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
 // -------------------------------------------------------------
 // GET: Obtener todos los documentos de la bóveda de un proyecto
 // -------------------------------------------------------------
@@ -225,9 +231,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -312,7 +318,7 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         if (uploadedFilePath) {
             await supabase.storage.from('vault').remove([uploadedFilePath]);
         }
@@ -320,7 +326,7 @@ export async function addVaultDocument(
             await supabase.from('vault_documents').delete().eq('id', createdVaultDocumentId);
         }
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -351,11 +357,17 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return (data || []).map((doc: ProjectDocumentForVault) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 async function downloadProjectDocumentFile(
@@ -379,6 +391,10 @@ async function downloadProjectDocumentFile(
     }
 
     throw new Error(vaultError?.message || legacyError?.message || 'No se pudo descargar el archivo origen.');
+}
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : 'Error desconocido';
 }
 
 

@@ -1,13 +1,10 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
 import { requireProfileRole, VAULT_MANAGER_ROLES } from './action-auth';
-
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
-type CookieSetOptions = Parameters<CookieStore['set']>[2];
 
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
@@ -19,8 +16,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: CookieSetOptions) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: CookieSetOptions) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );

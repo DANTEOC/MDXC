@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import {
@@ -10,8 +10,6 @@ import {
     VAULT_VALIDATOR_ROLES
 } from './action-auth';
 
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
-type CookieSetOptions = Parameters<CookieStore['set']>[2];
 type ProjectDocumentForVaultRow = {
     id: string;
     file_name: string | null;
@@ -60,10 +58,10 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: CookieSetOptions) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: CookieSetOptions) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },

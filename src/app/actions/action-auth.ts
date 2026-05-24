@@ -1,13 +1,26 @@
 import type { User } from '@supabase/supabase-js';
 
+type ActionError = { message?: string } | null;
+type ProfileRoleRow = { role?: string | null };
+type ProfileRoleQuery = {
+    select: (columns: 'role') => {
+        eq: (column: 'id', value: string) => {
+            single: () => Promise<{
+                data: ProfileRoleRow | null;
+                error: ActionError;
+            }>;
+        };
+    };
+};
+
 type SupabaseActionClient = {
     auth: {
         getUser: () => Promise<{
             data: { user: User | null };
-            error: { message?: string } | null;
+            error: ActionError;
         }>;
     };
-    from: (table: string) => any;
+    from: (table: 'profiles') => ProfileRoleQuery;
 };
 
 export const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'] as const;

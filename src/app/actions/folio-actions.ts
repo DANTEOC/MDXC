@@ -6,6 +6,9 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
 import { requireProfileRole, VAULT_MANAGER_ROLES } from './action-auth';
 
+type CookieStore = Awaited<ReturnType<typeof cookies>>;
+type CookieSetOptions = Parameters<CookieStore['set']>[2];
+
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
 // -------------------------------------------------------------
@@ -16,8 +19,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieSetOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieSetOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
@@ -65,7 +68,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {

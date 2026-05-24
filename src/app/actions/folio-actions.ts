@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
+import { requireProfileRole, VAULT_MANAGER_ROLES } from './action-auth';
 
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
@@ -27,6 +28,7 @@ const getSupabase = async () => {
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireProfileRole(supabase, VAULT_MANAGER_ROLES);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);

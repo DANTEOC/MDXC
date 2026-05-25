@@ -366,12 +366,24 @@ export async function getProjectDocumentsForVault(projectId: string) {
         return [];
     }
     
+    type ProjectDocumentForVault = {
+        id: string;
+        file_name: string | null;
+        document_definitions?: { name?: string | null }[] | { name?: string | null } | null;
+    };
+
     // Formateamos para el frontend
-    return data.map((doc: { id: string; file_name: string | null; document_definitions?: { name?: string | null } | null }) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return (data as ProjectDocumentForVault[]).map((doc) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 export async function getVaultDocumentVersionDownloadUrl(versionId: string) {

@@ -22,9 +22,27 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VersionHistoryItem = {
+    id: string;
+    version_number: number;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated: boolean;
+    validated_at?: string | null;
+    uploader?: {
+        full_name?: string | null;
+        role?: string | null;
+    } | null;
+    validator?: {
+        full_name?: string | null;
+    } | null;
+};
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Error desconocido';
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
@@ -58,9 +76,9 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
             } else {
                 window.open(signedUrl, '_blank', 'noopener,noreferrer');
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             newWindow?.close();
-            alert(`No se pudo abrir el archivo: ${error.message}`);
+            alert(`No se pudo abrir el archivo: ${getErrorMessage(error)}`);
         } finally {
             setOpeningVersionId(null);
         }

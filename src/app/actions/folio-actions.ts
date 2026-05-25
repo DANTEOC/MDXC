@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
@@ -16,12 +16,14 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
 };
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Error desconocido';
 
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
@@ -72,7 +74,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(nextPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {
@@ -110,7 +112,7 @@ export async function generateProjectFolios(projectId: string) {
             foliatedFiles.push(newFilePath);
 
         } catch (pdfError) {
-            const message = pdfError instanceof Error ? pdfError.message : 'PDF inválido';
+            const message = getErrorMessage(pdfError);
             throw new Error(`No se pudo foliar "${doc.name}": ${message}`);
         }
     }

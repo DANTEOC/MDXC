@@ -14,7 +14,7 @@ type SupabaseClient = {
     auth: {
         getUser(): Promise<{ data: { user: { id: string } | null }; error: unknown | null }>;
     };
-    from(table: string): QueryBuilder;
+    from(table: string): unknown;
 };
 
 type AuthContext = {
@@ -29,8 +29,7 @@ export async function requireAuthenticatedUser(supabase: SupabaseClient): Promis
         throw new Error('Unauthorized');
     }
 
-    const { data: profile, error: profileError } = await supabase
-        .from('profiles')
+    const { data: profile, error: profileError } = await (supabase.from('profiles') as QueryBuilder)
         .select('role, status')
         .eq('id', user.id)
         .single<{ role: string | null; status: string | null }>();
@@ -53,8 +52,7 @@ export async function requireProjectAccess(supabase: SupabaseClient, projectId: 
         return context;
     }
 
-    const { data: membership, error } = await supabase
-        .from('project_members')
+    const { data: membership, error } = await (supabase.from('project_members') as QueryBuilder)
         .select('id')
         .eq('project_id', projectId)
         .eq('user_id', context.user.id)

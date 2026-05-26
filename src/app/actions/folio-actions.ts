@@ -81,7 +81,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {

@@ -10,11 +10,11 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import { History, FileText, CheckCircle, Clock } from 'lucide-react';
+import { History, FileText, CheckCircle, Clock, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
+import { createVaultDocumentVersionSignedUrl, getDocumentVersionHistory } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -26,6 +26,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
     const [open, setOpen] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
     const loadHistory = async () => {
         setLoading(true);
@@ -43,6 +44,22 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setOpen(isOpen);
         if (isOpen) {
             loadHistory();
+        }
+    };
+
+    const handleViewFile = async (version: any) => {
+        setOpeningVersionId(version.id);
+        try {
+            const result = await createVaultDocumentVersionSignedUrl(version.file_path);
+            if (result.success && result.signedUrl) {
+                window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
+            } else {
+                alert(`Error al abrir archivo: ${result.error}`);
+            }
+        } catch (error: any) {
+            alert(`Error al abrir archivo: ${error.message}`);
+        } finally {
+            setOpeningVersionId(null);
         }
     };
 
@@ -86,10 +103,19 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                     Subido el {format(new Date(version.uploaded_at), "d 'de' MMMM, yyyy 'a las' HH:mm", { locale: es })}
                                                 </p>
                                             </div>
-                                            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                                                <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/vault/${version.file_path}`} target="_blank" rel="noreferrer">
-                                                    <FileText className="h-3 w-3 mr-1" /> Ver archivo
-                                                </a>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => handleViewFile(version)}
+                                                disabled={openingVersionId === version.id}
+                                            >
+                                                {openingVersionId === version.id ? (
+                                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                                ) : (
+                                                    <FileText className="h-3 w-3 mr-1" />
+                                                )}
+                                                Ver archivo
                                             </Button>
                                         </div>
 

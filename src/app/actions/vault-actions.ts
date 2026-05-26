@@ -43,6 +43,8 @@ const getErrorMessage = (error: unknown) => {
     return error instanceof Error ? error.message : 'Error desconocido';
 };
 
+const VAULT_MANAGER_ROLES = new Set(['ADMIN', 'SUPERVISOR', 'DIRECTOR']);
+
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client para Server Actions
 // -------------------------------------------------------------
@@ -64,6 +66,23 @@ const getSupabase = async () => {
             },
         }
     );
+};
+
+const authorizeVaultManager = async (supabase: Awaited<ReturnType<typeof getSupabase>>) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { authorized: false, error: "Unauthorized" } as const;
+
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !profile?.role || !VAULT_MANAGER_ROLES.has(profile.role)) {
+        return { authorized: false, error: "Forbidden" } as const;
+    }
+
+    return { authorized: true, user } as const;
 };
 
 // -------------------------------------------------------------
@@ -176,9 +195,8 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
 export async function uploadVaultDocumentVersion(formData: FormData) {
     const supabase = await getSupabase();
     
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
+    const auth = await authorizeVaultManager(supabase);
+    if (!auth.authorized) return { success: false, error: auth.error };
 
     const file = formData.get('file') as File;
     const projectId = formData.get('projectId') as string;
@@ -190,6 +208,16 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
     }
 
     try {
+        const { data: vaultDoc, error: vaultDocError } = await supabase
+            .from('vault_documents')
+            .select('project_id')
+            .eq('id', vaultDocumentId)
+            .single();
+
+        if (vaultDocError || vaultDoc?.project_id !== projectId) {
+            return { success: false, error: "Forbidden" };
+        }
+
         // 1. Determinar el próximo número de versión
         const { data: versions, error: verError } = await supabase
             .from('vault_document_versions')
@@ -220,7 +248,7 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
                 vault_document_id: vaultDocumentId,
                 version_number: nextVersion,
                 file_path: filePath,
-                uploaded_by: user.id,
+                uploaded_by: auth.user.id,
                 change_reason: changeReason || 'Carga inicial',
                 // page_count lo extraemos luego o es opcional
             });
@@ -253,8 +281,8 @@ export async function addVaultDocument(
     const supabase = await getSupabase();
     
     // Solo roles autorizados pueden crear contenedores
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
+    const auth = await authorizeVaultManager(supabase);
+    if (!auth.authorized) return { success: false, error: auth.error };
 
     if (!projectDocumentId) return { success: false, error: "Debe seleccionar un documento base" };
     if (!changeReason) return { success: false, error: "Debe proveer un motivo" };
@@ -263,12 +291,16 @@ export async function addVaultDocument(
         // 1. Obtener la ruta del archivo del expediente digital
         const { data: sourceDoc, error: sourceError } = await supabase
             .from('project_documents')
-            .select('file_path, file_name')
+            .select('project_id, file_path, file_name')
             .eq('id', projectDocumentId)
             .single();
 
         if (sourceError || !sourceDoc || !sourceDoc.file_path) {
             throw new Error("No se pudo encontrar el archivo origen del documento seleccionado.");
+        }
+
+        if (sourceDoc.project_id !== projectId) {
+            return { success: false, error: "Forbidden" };
         }
 
         // 2. Crear el contenedor en la bóveda
@@ -303,7 +335,7 @@ export async function addVaultDocument(
                 vault_document_id: vaultDoc.id,
                 version_number: 1,
                 file_path: newFilePath,
-                uploaded_by: user.id,
+                uploaded_by: auth.user.id,
                 change_reason: changeReason
             });
 

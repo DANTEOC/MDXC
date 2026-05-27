@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'] as const;
@@ -13,10 +13,10 @@ export const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
@@ -24,7 +24,9 @@ export const getSupabase = async () => {
     );
 };
 
-export async function requireAuthenticatedUser(supabase: any) {
+type ServerSupabaseClient = Awaited<ReturnType<typeof getSupabase>>;
+
+export async function requireAuthenticatedUser(supabase: ServerSupabaseClient) {
     const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error || !user) {
@@ -34,7 +36,7 @@ export async function requireAuthenticatedUser(supabase: any) {
     return user;
 }
 
-export async function requireUserWithRole(supabase: any, allowedRoles: readonly string[]) {
+export async function requireUserWithRole(supabase: ServerSupabaseClient, allowedRoles: readonly string[]) {
     const user = await requireAuthenticatedUser(supabase);
 
     const { data: profile, error } = await supabase

@@ -35,6 +35,14 @@ export interface VaultDocumentVersion {
   validated_at?: string;
 }
 
+type ProjectDocumentForVaultRow = {
+    id: string;
+    file_name: string | null;
+    document_definitions?: { name?: string | null } | null;
+};
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Error desconocido';
+
 // -------------------------------------------------------------
 // GET: Obtener todos los documentos de la bóveda de un proyecto
 // -------------------------------------------------------------
@@ -53,7 +61,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -203,9 +211,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -280,9 +288,9 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -313,7 +321,7 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
+    return data.map((doc: ProjectDocumentForVaultRow) => ({
         id: doc.id,
         name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
         file_name: doc.file_name

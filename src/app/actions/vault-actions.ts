@@ -38,7 +38,7 @@ export interface VaultDocumentVersion {
 type ProjectDocumentForVaultRow = {
     id: string;
     file_name: string | null;
-    document_definitions?: { name?: string | null } | null;
+    document_definitions?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Error desconocido';
@@ -323,7 +323,7 @@ export async function getProjectDocumentsForVault(projectId: string) {
     // Formateamos para el frontend
     return data.map((doc: ProjectDocumentForVaultRow) => ({
         id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
+        name: (Array.isArray(doc.document_definitions) ? doc.document_definitions[0]?.name : doc.document_definitions?.name) || doc.file_name || 'Documento sin nombre',
         file_name: doc.file_name
     }));
 }

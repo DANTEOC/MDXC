@@ -127,7 +127,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                             </div>
                                             
                                             <div className="flex justify-between items-center bg-white p-2 rounded border border-neutral-100 mt-1">
-                                                {version.is_validated ? (
+                                                {version.is_validated && version.validated_at ? (
                                                     <div className="flex items-center text-emerald-600">
                                                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
                                                         Validado por {version.validator?.full_name || 'Analista'} el {format(new Date(version.validated_at), "dd/MM/yyyy")}

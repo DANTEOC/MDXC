@@ -22,11 +22,50 @@ const getSupabase = async () => {
     );
 };
 
+const FOLIO_ALLOWED_ROLES = new Set(['ADMIN', 'DIRECTOR', 'SUPERVISOR']);
+const GLOBAL_PROJECT_ROLES = new Set(['ADMIN', 'DIRECTOR']);
+
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
+async function ensureFolioAccess(supabase: SupabaseServerClient, projectId: string) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+        throw new Error("Unauthorized");
+    }
+
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (profileError || !profile?.role || !FOLIO_ALLOWED_ROLES.has(profile.role)) {
+        throw new Error("No tienes permisos para generar foliados.");
+    }
+
+    if (GLOBAL_PROJECT_ROLES.has(profile.role)) {
+        return;
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+        .from('project_members')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    if (membershipError) throw membershipError;
+    if (!membership) {
+        throw new Error("No tienes permisos para generar foliados en este proyecto.");
+    }
+}
+
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await ensureFolioAccess(supabase, projectId);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);
@@ -37,11 +76,15 @@ export async function generateProjectFolios(projectId: string) {
 
     let globalPageNumber = 1;
     const foliatedFiles = [];
+    const failedDocuments: string[] = [];
 
     // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion || !latestVersion.file_path) {
+            failedDocuments.push(doc.name);
+            continue;
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -50,6 +93,7 @@ export async function generateProjectFolios(projectId: string) {
 
         if (downloadError || !fileData) {
             console.error(`Error descargando ${doc.name}:`, downloadError);
+            failedDocuments.push(doc.name);
             continue; // Skip si hay error (podría ser un archivo corrupto)
         }
 
@@ -95,21 +139,30 @@ export async function generateProjectFolios(projectId: string) {
 
             if (uploadError) {
                 console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
+                failedDocuments.push(doc.name);
             } else {
                 foliatedFiles.push(newFilePath);
             }
 
         } catch (pdfError) {
             console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
+            failedDocuments.push(doc.name);
             // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
         }
     }
 
     // 3. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
+    if (foliatedFiles.length === 0) {
+        throw new Error("No se pudo generar ningún foliado. Verifica que la bóveda tenga PDFs válidos y accesibles.");
+    }
+
+    const failedMessage = failedDocuments.length > 0
+        ? ` No se pudieron foliar ${failedDocuments.length} documento(s): ${failedDocuments.join(', ')}.`
+        : '';
 
     return { 
         success: true, 
-        message: `Foliado completado. Se foliaros ${globalPageNumber - 1} páginas en total.`,
+        message: `Foliado completado. Se foliaron ${globalPageNumber - 1} páginas en total.${failedMessage}`,
         files: foliatedFiles
     };
 }

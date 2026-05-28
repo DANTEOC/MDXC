@@ -17,6 +17,17 @@ import { Badge } from '@/components/ui/badge';
 import { createVaultDocumentVersionSignedUrl, getDocumentVersionHistory } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+type VersionHistoryItem = {
+    id: string;
+    version_number: number;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated: boolean;
+    validated_at?: string | null;
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
 interface VaultHistoryModalProps {
     vaultDocumentId: string;
     documentName: string;
@@ -24,7 +35,7 @@ interface VaultHistoryModalProps {
 
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const loadHistory = async () => {
@@ -50,8 +61,9 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         try {
             const signedUrl = await createVaultDocumentVersionSignedUrl(versionId);
             window.open(signedUrl, '_blank', 'noopener,noreferrer');
-        } catch (error: any) {
-            alert(error.message || 'Error al abrir documento');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Error al abrir documento';
+            alert(message);
         }
     };
 

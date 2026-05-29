@@ -17,6 +17,12 @@ import { Badge } from '@/components/ui/badge';
 import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+type VersionHistoryItem = VaultDocumentVersion & {
+    signed_url?: string | null;
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
 interface VaultHistoryModalProps {
     vaultDocumentId: string;
     documentName: string;
@@ -24,7 +30,7 @@ interface VaultHistoryModalProps {
 
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const loadHistory = async () => {

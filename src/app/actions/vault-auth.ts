@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 
 const VAULT_WRITE_ROLES = new Set(['ADMIN', 'SUPERVISOR', 'DIRECTOR']);
 const VAULT_GLOBAL_ROLES = new Set(['ADMIN', 'DIRECTOR']);
+type CookieOptions = Record<string, unknown>;
 
 export const getSupabase = async () => {
     return createServerClient(
@@ -15,10 +16,10 @@ export const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },

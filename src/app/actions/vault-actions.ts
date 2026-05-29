@@ -9,6 +9,15 @@ import {
     requireVaultWriteAccess,
 } from './vault-auth';
 
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+        const message = (error as { message?: unknown }).message;
+        if (typeof message === 'string') return message;
+    }
+    return 'Error desconocido';
+}
+
 // Tipos base para la Bóveda
 export interface VaultDocument {
   id: string;
@@ -54,7 +63,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -212,7 +221,7 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         if (uploadedFilePath) {
             const { error: cleanupError } = await supabase.storage.from('vault').remove([uploadedFilePath]);
             if (cleanupError) {
@@ -220,7 +229,7 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
             }
         }
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -300,7 +309,7 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         if (copiedFilePath) {
             const { error: cleanupError } = await supabase.storage.from('vault').remove([copiedFilePath]);
             if (cleanupError) {
@@ -320,7 +329,7 @@ export async function addVaultDocument(
         }
 
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -351,11 +360,21 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return data.map((doc: {
+        id: string;
+        file_name: string | null;
+        document_definitions?: { name?: string | null } | { name?: string | null }[] | null;
+    }) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 

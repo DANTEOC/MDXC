@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory } from '@/app/actions/vault-actions';
+import { getDocumentVersionHistory, type VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -22,9 +22,14 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VersionHistoryItem = VaultDocumentVersion & {
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const loadHistory = async () => {

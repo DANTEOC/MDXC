@@ -1,6 +1,7 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
@@ -31,6 +32,26 @@ export interface VaultDocumentVersion {
   validated_at?: string;
 }
 
+type ProfileAuthorization = {
+    role: string;
+    status: string | null;
+};
+
+type AuthorizationResult =
+    | { user: User; profile: ProfileAuthorization; error: null }
+    | { user: null; profile: null; error: string };
+
+type VersionHistoryRow = VaultDocumentVersion & {
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
+type ProjectDocumentForVaultRow = {
+    id: string;
+    file_name: string | null;
+    document_definitions?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client para Server Actions
 // -------------------------------------------------------------
@@ -43,10 +64,10 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
@@ -57,7 +78,7 @@ const getSupabase = async () => {
 const VAULT_MANAGER_ROLES = ['ADMIN', 'DIRECTOR', 'SUPERVISOR'];
 const VAULT_VALIDATOR_ROLES = [...VAULT_MANAGER_ROLES, 'ANALYST'];
 
-async function authorizeActiveUser(supabase: any) {
+async function authorizeActiveUser(supabase: SupabaseClient): Promise<AuthorizationResult> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { user: null, profile: null, error: "Unauthorized" };
 
@@ -78,7 +99,7 @@ async function authorizeActiveUser(supabase: any) {
     return { user, profile, error: null };
 }
 
-async function authorizeVaultAction(supabase: any, allowedRoles: string[]) {
+async function authorizeVaultAction(supabase: SupabaseClient, allowedRoles: string[]): Promise<AuthorizationResult> {
     const authorization = await authorizeActiveUser(supabase);
     if (authorization.error || !authorization.user || !authorization.profile) return authorization;
 
@@ -106,7 +127,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -143,7 +164,7 @@ export async function getDocumentVersionHistory(vaultDocumentId: string) {
 
     if (error) throw new Error(`Error fetching version history: ${error.message}`);
 
-    return Promise.all((versions || []).map(async (version: any) => {
+    return Promise.all(((versions || []) as VersionHistoryRow[]).map(async (version) => {
         if (!version.file_path) return { ...version, signed_url: null };
 
         const { data: signedUrlData, error: signedUrlError } = await supabase.storage
@@ -278,9 +299,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: error instanceof Error ? error.message : "Error desconocido" };
     }
 }
 
@@ -356,9 +377,9 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: error instanceof Error ? error.message : "Error desconocido" };
     }
 }
 
@@ -388,11 +409,17 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return ((data || []) as ProjectDocumentForVaultRow[]).map((doc) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 

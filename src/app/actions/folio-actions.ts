@@ -1,6 +1,7 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
@@ -15,8 +16,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
@@ -24,7 +25,7 @@ const getSupabase = async () => {
 
 const VAULT_MANAGER_ROLES = ['ADMIN', 'DIRECTOR', 'SUPERVISOR'];
 
-async function authorizeFolioGeneration(supabase: any) {
+async function authorizeFolioGeneration(supabase: SupabaseClient) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
@@ -89,7 +90,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {

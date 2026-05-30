@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
+import { getDocumentVersionHistory, type VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -22,9 +22,14 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VersionHistoryItem = VaultDocumentVersion & {
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const loadHistory = async () => {
@@ -86,11 +91,17 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                     Subido el {format(new Date(version.uploaded_at), "d 'de' MMMM, yyyy 'a las' HH:mm", { locale: es })}
                                                 </p>
                                             </div>
-                                            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                                                <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/vault/${version.file_path}`} target="_blank" rel="noreferrer">
-                                                    <FileText className="h-3 w-3 mr-1" /> Ver archivo
-                                                </a>
-                                            </Button>
+                                            {version.signed_url ? (
+                                                <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+                                                    <a href={version.signed_url} target="_blank" rel="noreferrer">
+                                                        <FileText className="h-3 w-3 mr-1" /> Ver archivo
+                                                    </a>
+                                                </Button>
+                                            ) : (
+                                                <Button variant="outline" size="sm" className="h-7 text-xs" disabled>
+                                                    <FileText className="h-3 w-3 mr-1" /> No disponible
+                                                </Button>
+                                            )}
                                         </div>
 
                                         <div className="bg-neutral-50 rounded-md p-3 text-sm text-neutral-700 border border-neutral-100">
@@ -106,7 +117,8 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                 {version.is_validated ? (
                                                     <div className="flex items-center text-emerald-600">
                                                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                                        Validado por {version.validator?.full_name || 'Analista'} el {format(new Date(version.validated_at), "dd/MM/yyyy")}
+                                                        Validado por {version.validator?.full_name || 'Analista'}
+                                                        {version.validated_at ? ` el ${format(new Date(version.validated_at), "dd/MM/yyyy")}` : ''}
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center text-amber-600">

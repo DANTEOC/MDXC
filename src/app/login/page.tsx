@@ -54,11 +54,16 @@ export default function LoginPage() {
                 if (error) throw error;
                 setMessage('Revisa tu correo para confirmar tu cuenta.');
             } else {
-                const { error } = await supabase.auth.signInWithPassword({
+                const { data: authData, error } = await supabase.auth.signInWithPassword({
                     email,
                     password,
                 });
                 if (error) throw error;
+                
+                if (authData?.user) {
+                    await supabase.rpc('update_last_access');
+                }
+
                 router.push('/dashboard');
             }
         } catch (err: any) {

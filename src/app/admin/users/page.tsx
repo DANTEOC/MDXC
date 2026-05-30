@@ -318,12 +318,13 @@ export default function UsersPage() {
                                 <TableHead>Usuario</TableHead>
                                 <TableHead>Rol</TableHead>
                                 <TableHead>Empresa</TableHead>
+                                <TableHead>Último Acceso</TableHead>
                                 <TableHead>Estatus</TableHead>
                                 <TableHead className="text-right">Acciones</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {loading && <TableRow><TableCell colSpan={5} className="text-center py-10">Cargando...</TableCell></TableRow>}
+                            {loading && <TableRow><TableCell colSpan={6} className="text-center py-10">Cargando...</TableCell></TableRow>}
 
                             {!loading && filteredUsers.map((user) => (
                                 <TableRow key={user.id}>
@@ -336,6 +337,9 @@ export default function UsersPage() {
                                     </TableCell>
                                     <TableCell className="text-sm text-neutral-600">
                                         {user.company?.name || '-'}
+                                    </TableCell>
+                                    <TableCell className="text-sm text-neutral-600 whitespace-nowrap">
+                                        {user.last_access ? new Date(user.last_access).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : 'Nunca'}
                                     </TableCell>
                                     <TableCell>
                                         <Badge className={`

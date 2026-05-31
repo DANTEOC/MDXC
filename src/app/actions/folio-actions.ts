@@ -22,11 +22,34 @@ const getSupabase = async () => {
     );
 };
 
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
+async function assertCanManageVaultProject(supabase: SupabaseServerClient, projectId: string) {
+    if (!projectId) throw new Error("Missing project");
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("Unauthorized");
+
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, status')
+        .eq('id', user.id)
+        .single();
+
+    if (profileError || !profile) throw new Error("Unauthorized");
+    if (profile.status === 'SUSPENDED') throw new Error("Account suspended");
+    if (!['ADMIN', 'DIRECTOR', 'SUPERVISOR'].includes(profile.role || '')) {
+        throw new Error("Forbidden");
+    }
+}
+
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+
+    await assertCanManageVaultProject(supabase, projectId);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);

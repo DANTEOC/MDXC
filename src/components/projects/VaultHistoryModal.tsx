@@ -22,9 +22,25 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+type VaultHistoryItem = {
+    id: string;
+    version_number: number;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated: boolean;
+    validated_at?: string | null;
+    uploader?: {
+        full_name?: string | null;
+        role?: string | null;
+    } | null;
+    validator?: {
+        full_name?: string | null;
+    } | null;
+};
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VaultHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
@@ -32,7 +48,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setLoading(true);
         try {
             const data = await getDocumentVersionHistory(vaultDocumentId);
-            setHistory(data || []);
+            setHistory((data || []) as VaultHistoryItem[]);
         } catch (error) {
             console.error(error);
         } finally {
@@ -63,9 +79,9 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                 targetWindow?.close();
                 alert(result.error || 'No se pudo abrir el archivo.');
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             targetWindow?.close();
-            alert(error.message || 'No se pudo abrir el archivo.');
+            alert(error instanceof Error ? error.message : 'No se pudo abrir el archivo.');
         } finally {
             setOpeningVersionId(null);
         }

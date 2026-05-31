@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
@@ -30,6 +30,12 @@ export interface VaultDocumentVersion {
   validated_at?: string;
 }
 
+type ProjectDocumentForVault = {
+    id: string;
+    file_name: string | null;
+    document_definitions?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client para Server Actions
 // -------------------------------------------------------------
@@ -42,16 +48,98 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
         }
     );
 };
+
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
+const VAULT_MANAGER_ROLES = new Set(['ADMIN', 'DIRECTOR', 'SUPERVISOR']);
+const VAULT_VALIDATOR_ROLES = new Set(['ADMIN', 'DIRECTOR', 'SUPERVISOR', 'ANALYST']);
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+}
+
+async function requireActiveProfile(supabase: SupabaseServerClient) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("Unauthorized");
+
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, role, status')
+        .eq('id', user.id)
+        .single();
+
+    if (profileError || !profile) throw new Error("Unauthorized");
+    if (profile.status === 'SUSPENDED') throw new Error("Account suspended");
+
+    return {
+        id: user.id,
+        role: profile.role as string | null,
+        status: profile.status as string | null,
+    };
+}
+
+async function assertCanManageVaultProject(supabase: SupabaseServerClient, projectId: string) {
+    if (!projectId) throw new Error("Missing project");
+
+    const profile = await requireActiveProfile(supabase);
+    if (!profile.role || !VAULT_MANAGER_ROLES.has(profile.role)) {
+        throw new Error("Forbidden");
+    }
+
+    return profile;
+}
+
+async function assertCanValidateVaultProject(supabase: SupabaseServerClient, projectId: string) {
+    if (!projectId) throw new Error("Missing project");
+
+    const profile = await requireActiveProfile(supabase);
+    if (!profile.role || !VAULT_VALIDATOR_ROLES.has(profile.role)) {
+        throw new Error("Forbidden");
+    }
+
+    return profile;
+}
+
+async function assertVaultDocumentBelongsToProject(
+    supabase: SupabaseServerClient,
+    vaultDocumentId: string,
+    projectId: string
+) {
+    const { data, error } = await supabase
+        .from('vault_documents')
+        .select('id')
+        .eq('id', vaultDocumentId)
+        .eq('project_id', projectId)
+        .single();
+
+    if (error || !data) {
+        throw new Error("El documento de bóveda no pertenece al proyecto indicado.");
+    }
+}
+
+async function getVaultDocumentProjectId(supabase: SupabaseServerClient, vaultDocumentId: string) {
+    const { data, error } = await supabase
+        .from('vault_documents')
+        .select('project_id')
+        .eq('id', vaultDocumentId)
+        .single();
+
+    if (error || !data?.project_id) {
+        throw new Error("No se pudo validar el proyecto del documento.");
+    }
+
+    return data.project_id as string;
+}
 
 // -------------------------------------------------------------
 // GET: Obtener todos los documentos de la bóveda de un proyecto
@@ -70,7 +158,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -112,10 +200,20 @@ export async function getDocumentVersionHistory(vaultDocumentId: string) {
 // -------------------------------------------------------------
 export async function validateDocumentVersion(versionId: string, projectId: string) {
     const supabase = await getSupabase();
-    
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Unauthorized");
+
+    const user = await assertCanValidateVaultProject(supabase, projectId);
+
+    const { data: version, error: versionError } = await supabase
+        .from('vault_document_versions')
+        .select('vault_document_id')
+        .eq('id', versionId)
+        .single();
+
+    if (versionError || !version?.vault_document_id) {
+        throw new Error("No se pudo validar la versión del documento.");
+    }
+
+    await assertVaultDocumentBelongsToProject(supabase, version.vault_document_id, projectId);
     
     // Marcar como validado
     const { error } = await supabase
@@ -138,10 +236,6 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
 // -------------------------------------------------------------
 export async function uploadVaultDocumentVersion(formData: FormData) {
     const supabase = await getSupabase();
-    
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     const file = formData.get('file') as File;
     const projectId = formData.get('projectId') as string;
@@ -153,6 +247,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
     }
 
     try {
+        const user = await assertCanManageVaultProject(supabase, projectId);
+        await assertVaultDocumentBelongsToProject(supabase, vaultDocumentId, projectId);
+
         // 1. Determinar el próximo número de versión
         const { data: versions, error: verError } = await supabase
             .from('vault_document_versions')
@@ -196,9 +293,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -214,20 +311,19 @@ export async function addVaultDocument(
     changeReason: string
 ) {
     const supabase = await getSupabase();
-    
-    // Solo roles autorizados pueden crear contenedores
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
 
     if (!projectDocumentId) return { success: false, error: "Debe seleccionar un documento base" };
     if (!changeReason) return { success: false, error: "Debe proveer un motivo" };
 
     try {
+        const user = await assertCanManageVaultProject(supabase, projectId);
+
         // 1. Obtener la ruta del archivo del expediente digital
         const { data: sourceDoc, error: sourceError } = await supabase
             .from('project_documents')
             .select('file_path, file_name')
             .eq('id', projectDocumentId)
+            .eq('project_id', projectId)
             .single();
 
         if (sourceError || !sourceDoc || !sourceDoc.file_path) {
@@ -274,9 +370,9 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error) };
     }
 }
 
@@ -306,11 +402,53 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return (data || []).map((doc: ProjectDocumentForVault) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
+}
+
+// -------------------------------------------------------------
+// GET: Crear una URL firmada para descargar una versión de la bóveda
+// -------------------------------------------------------------
+export async function createVaultDocumentVersionSignedUrl(versionId: string) {
+    const supabase = await getSupabase();
+
+    try {
+        await requireActiveProfile(supabase);
+
+        const { data: version, error: versionError } = await supabase
+            .from('vault_document_versions')
+            .select('file_path, vault_document_id')
+            .eq('id', versionId)
+            .single();
+
+        if (versionError || !version?.file_path) {
+            throw new Error("No se encontró la versión solicitada.");
+        }
+
+        const projectId = await getVaultDocumentProjectId(supabase, version.vault_document_id);
+        await assertVaultDocumentBelongsToProject(supabase, version.vault_document_id, projectId);
+
+        const { data, error } = await supabase.storage
+            .from('vault')
+            .createSignedUrl(version.file_path, 60 * 5);
+
+        if (error || !data?.signedUrl) {
+            throw new Error(error?.message || "No se pudo generar la URL de descarga.");
+        }
+
+        return { success: true, url: data.signedUrl };
+    } catch (error: unknown) {
+        return { success: false, error: getErrorMessage(error) };
+    }
 }
 
 

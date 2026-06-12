@@ -1,9 +1,10 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
+import { requireProjectRole, VAULT_WRITE_ROLES } from './action-auth';
 
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
@@ -15,18 +16,21 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
 };
+
+const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Error desconocido';
 
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireProjectRole(supabase, projectId, VAULT_WRITE_ROLES);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);
@@ -35,13 +39,20 @@ export async function generateProjectFolios(projectId: string) {
         throw new Error("El proyecto no tiene documentos en la bóveda.");
     }
 
+    const documentsWithoutVersion = documents.filter(doc => !doc.latest_version?.file_path);
+    if (documentsWithoutVersion.length > 0) {
+        throw new Error(`No se puede generar el foliado: ${documentsWithoutVersion.length} documento(s) no tienen una versión archivada.`);
+    }
+
     let globalPageNumber = 1;
-    const foliatedFiles = [];
+    const foliatedFiles: string[] = [];
 
     // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion?.file_path) {
+            throw new Error(`El documento "${doc.name}" no tiene una versión archivada.`);
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -49,8 +60,7 @@ export async function generateProjectFolios(projectId: string) {
             .download(latestVersion.file_path);
 
         if (downloadError || !fileData) {
-            console.error(`Error descargando ${doc.name}:`, downloadError);
-            continue; // Skip si hay error (podría ser un archivo corrupto)
+            throw new Error(`Error descargando "${doc.name}": ${downloadError?.message || 'archivo no disponible'}`);
         }
 
         const arrayBuffer = await fileData.arrayBuffer();
@@ -60,11 +70,12 @@ export async function generateProjectFolios(projectId: string) {
             const pdfDoc = await PDFDocument.load(arrayBuffer);
             const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
             const pages = pdfDoc.getPages();
+            let nextPageNumber = globalPageNumber;
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
-                const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
+                const { width } = page.getSize();
+                const folioText = `Folio: ${String(nextPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {
                     x: width - 120, // Esquina inferior derecha
@@ -74,7 +85,7 @@ export async function generateProjectFolios(projectId: string) {
                     color: rgb(1, 0, 0), // Rojo
                 });
                 
-                globalPageNumber++;
+                nextPageNumber++;
             }
 
             // D. Guardar el PDF modificado en memoria
@@ -94,14 +105,15 @@ export async function generateProjectFolios(projectId: string) {
                 });
 
             if (uploadError) {
-                console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
-            } else {
-                foliatedFiles.push(newFilePath);
+                throw new Error(`Error subiendo foliado de "${doc.name}": ${uploadError.message}`);
             }
 
+            globalPageNumber = nextPageNumber;
+            foliatedFiles.push(newFilePath);
+
         } catch (pdfError) {
-            console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
-            // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
+            const message = getErrorMessage(pdfError);
+            throw new Error(`No se pudo foliar "${doc.name}": ${message}`);
         }
     }
 

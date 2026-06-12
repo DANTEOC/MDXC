@@ -3,10 +3,9 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Upload, Lock, Clock, History, FileCheck } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
+import { Lock, FileCheck } from 'lucide-react';
 import { generateProjectFolios } from '@/app/actions/folio-actions';
-import { getProjectVaultDocuments } from '@/app/actions/vault-actions';
+import { getProjectVaultDocuments, type VaultDocument, type VaultDocumentVersion } from '@/app/actions/vault-actions';
 import { VaultHistoryModal } from './VaultHistoryModal';
 import { VaultUploadModal } from './VaultUploadModal';
 import { AddVaultDocumentModal } from './AddVaultDocumentModal';
@@ -18,8 +17,12 @@ interface ProjectVaultProps {
     currentUserRole: string | null;
 }
 
+type VaultDocumentWithLatestVersion = VaultDocument & {
+    latest_version?: VaultDocumentVersion | null;
+};
+
 export function ProjectVault({ projectId, currentUserRole }: ProjectVaultProps) {
-    const [documents, setDocuments] = useState<any[]>([]);
+    const [documents, setDocuments] = useState<VaultDocumentWithLatestVersion[]>([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
 
@@ -51,9 +54,11 @@ export function ProjectVault({ projectId, currentUserRole }: ProjectVaultProps) 
             if (res.success) {
                 alert(res.message);
                 loadDocuments(); // Recargar por si algo cambia
+            } else {
+                alert(res.message || "Error al generar foliado");
             }
-        } catch (error: any) {
-            alert(error.message || "Error al generar foliado");
+        } catch (error: unknown) {
+            alert(error instanceof Error ? error.message : "Error al generar foliado");
         } finally {
             setGenerating(false);
         }

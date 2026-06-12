@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
@@ -42,10 +42,10 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
@@ -77,6 +77,10 @@ export async function getProjectVaultDocuments(projectId: string) {
             .order('version_number', { ascending: false })
             .limit(1)
             .single();
+
+        if (verError) {
+            console.error(`Error fetching latest version for vault document ${doc.id}:`, verError);
+        }
             
         return {
             ...doc,
@@ -105,6 +109,27 @@ export async function getDocumentVersionHistory(vaultDocumentId: string) {
 
     if (error) throw new Error(`Error fetching version history: ${error.message}`);
     return versions;
+}
+
+// -------------------------------------------------------------
+// GET: Crear URL firmada para abrir una versión de la bóveda
+// -------------------------------------------------------------
+export async function createVaultDocumentSignedUrl(filePath: string) {
+    const supabase = await getSupabase();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Unauthorized" };
+    if (!filePath) return { success: false, error: "Missing file path" };
+
+    const { data, error } = await supabase.storage
+        .from('vault')
+        .createSignedUrl(filePath, 3600);
+
+    if (error || !data?.signedUrl) {
+        return { success: false, error: error?.message || "No se pudo generar la URL firmada" };
+    }
+
+    return { success: true, signedUrl: data.signedUrl };
 }
 
 // -------------------------------------------------------------
@@ -196,9 +221,10 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Error desconocido";
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: message };
     }
 }
 
@@ -274,9 +300,10 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Error desconocido";
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: message };
     }
 }
 
@@ -306,11 +333,17 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return data.map((doc) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
 }
 
 

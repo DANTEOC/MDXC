@@ -14,8 +14,19 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
+import { createVaultDocumentVersionSignedUrl, getDocumentVersionHistory } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+type VersionHistoryItem = {
+    id: string;
+    version_number: number;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated: boolean;
+    validated_at?: string | null;
+    uploader?: { full_name?: string | null; role?: string | null } | null;
+    validator?: { full_name?: string | null } | null;
+};
 
 interface VaultHistoryModalProps {
     vaultDocumentId: string;
@@ -24,7 +35,7 @@ interface VaultHistoryModalProps {
 
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
 
     const loadHistory = async () => {
@@ -43,6 +54,16 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setOpen(isOpen);
         if (isOpen) {
             loadHistory();
+        }
+    };
+
+    const handleViewFile = async (versionId: string) => {
+        try {
+            const signedUrl = await createVaultDocumentVersionSignedUrl(versionId);
+            window.open(signedUrl, '_blank', 'noopener,noreferrer');
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Error al abrir documento';
+            alert(message);
         }
     };
 
@@ -86,10 +107,13 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                     Subido el {format(new Date(version.uploaded_at), "d 'de' MMMM, yyyy 'a las' HH:mm", { locale: es })}
                                                 </p>
                                             </div>
-                                            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                                                <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/vault/${version.file_path}`} target="_blank" rel="noreferrer">
-                                                    <FileText className="h-3 w-3 mr-1" /> Ver archivo
-                                                </a>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => handleViewFile(version.id)}
+                                            >
+                                                <FileText className="h-3 w-3 mr-1" /> Ver archivo
                                             </Button>
                                         </div>
 
@@ -103,7 +127,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                             </div>
                                             
                                             <div className="flex justify-between items-center bg-white p-2 rounded border border-neutral-100 mt-1">
-                                                {version.is_validated ? (
+                                                {version.is_validated && version.validated_at ? (
                                                     <div className="flex items-center text-emerald-600">
                                                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
                                                         Validado por {version.validator?.full_name || 'Analista'} el {format(new Date(version.validated_at), "dd/MM/yyyy")}

@@ -3,10 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 export async function updateSession(request: NextRequest) {
     let response = NextResponse.next({
-        request: {
-            headers: request.headers,
-        },
+        request,
     });
+
+    const redirectWithSessionCookies = (url: URL) => {
+        const redirectResponse = NextResponse.redirect(url);
+        response.cookies.getAll().forEach((cookie) => {
+            redirectResponse.cookies.set(cookie);
+        });
+        return redirectResponse;
+    };
 
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,11 +23,9 @@ export async function updateSession(request: NextRequest) {
                     return request.cookies.getAll();
                 },
                 setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+                    cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
                     response = NextResponse.next({
-                        request: {
-                            headers: request.headers,
-                        },
+                        request,
                     });
                     cookiesToSet.forEach(({ name, value, options }) =>
                         response.cookies.set(name, value, options)
@@ -49,14 +53,14 @@ export async function updateSession(request: NextRequest) {
     if (!user && (request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/admin'))) {
         const url = request.nextUrl.clone();
         url.pathname = '/login';
-        return NextResponse.redirect(url);
+        return redirectWithSessionCookies(url);
     }
 
     // 2. If user exists and tries to access auth pages, redirect to dashboard
     if (user && (request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/')) {
         const url = request.nextUrl.clone();
         url.pathname = '/dashboard';
-        return NextResponse.redirect(url);
+        return redirectWithSessionCookies(url);
     }
 
     return response;

@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
 
+const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'] as const;
+
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
 // -------------------------------------------------------------
@@ -22,11 +24,33 @@ const getSupabase = async () => {
     );
 };
 
+type ServerSupabaseClient = Awaited<ReturnType<typeof getSupabase>>;
+
+async function requireAuthenticatedUser(supabase: ServerSupabaseClient) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Unauthorized");
+    return user;
+}
+
+async function requireRole(supabase: ServerSupabaseClient, allowedRoles: readonly string[]) {
+    const user = await requireAuthenticatedUser(supabase);
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !profile || !allowedRoles.includes(profile.role)) {
+        throw new Error("Forbidden");
+    }
+}
+
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireRole(supabase, VAULT_MANAGER_ROLES);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);

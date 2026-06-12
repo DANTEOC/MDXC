@@ -36,12 +36,16 @@ export async function generateProjectFolios(projectId: string) {
     }
 
     let globalPageNumber = 1;
-    const foliatedFiles = [];
+    const processedFiles: { path: string; bytes: Uint8Array }[] = [];
+    const failures: string[] = [];
 
-    // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
+    // 2. Iterar sobre cada documento para descargar y preparar el foliado
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion || !latestVersion.file_path) {
+            failures.push(`${doc.name}: no tiene una versión con archivo`);
+            continue;
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -50,7 +54,8 @@ export async function generateProjectFolios(projectId: string) {
 
         if (downloadError || !fileData) {
             console.error(`Error descargando ${doc.name}:`, downloadError);
-            continue; // Skip si hay error (podría ser un archivo corrupto)
+            failures.push(`${doc.name}: no se pudo descargar el archivo`);
+            continue;
         }
 
         const arrayBuffer = await fileData.arrayBuffer();
@@ -80,36 +85,47 @@ export async function generateProjectFolios(projectId: string) {
             // D. Guardar el PDF modificado en memoria
             const pdfBytes = await pdfDoc.save();
 
-            // E. Subir la copia foliada a una subcarpeta /folios/
+            // E. Preparar la copia foliada en una subcarpeta /folios/
             // El original estaba en algo como: <project_id>/originals/<uuid>.pdf
             // Lo guardaremos como: <project_id>/folios/<order>_<name>.pdf
             const safeName = doc.name.replace(/[^a-zA-Z0-9-_\.]/g, '_');
             const newFilePath = `${projectId}/folios/${String(doc.order_number).padStart(3, '0')}_${safeName}.pdf`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('vault')
-                .upload(newFilePath, pdfBytes, {
-                    contentType: 'application/pdf',
-                    upsert: true // Sobreescribimos si ya existía el foliado anterior
-                });
-
-            if (uploadError) {
-                console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
-            } else {
-                foliatedFiles.push(newFilePath);
-            }
+            processedFiles.push({ path: newFilePath, bytes: pdfBytes });
 
         } catch (pdfError) {
             console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
-            // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
+            failures.push(`${doc.name}: el archivo no es un PDF válido`);
         }
     }
 
-    // 3. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
+    if (failures.length > 0) {
+        throw new Error(`No se generó el foliado porque hay documentos sin procesar: ${failures.join('; ')}`);
+    }
+
+    const foliatedFiles = [];
+
+    // 3. Subir solo cuando todos los documentos pudieron foliarse correctamente
+    for (const file of processedFiles) {
+        const { error: uploadError } = await supabase.storage
+            .from('vault')
+            .upload(file.path, file.bytes, {
+                contentType: 'application/pdf',
+                upsert: true // Sobreescribimos si ya existía el foliado anterior
+            });
+
+        if (uploadError) {
+            throw new Error(`Error subiendo foliado ${file.path}: ${uploadError.message}`);
+        }
+
+        foliatedFiles.push(file.path);
+    }
+
+    // 4. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
 
     return { 
         success: true, 
-        message: `Foliado completado. Se foliaros ${globalPageNumber - 1} páginas en total.`,
+        message: `Foliado completado. Se foliaron ${globalPageNumber - 1} páginas en total.`,
         files: foliatedFiles
     };
 }

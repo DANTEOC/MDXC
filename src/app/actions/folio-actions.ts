@@ -1,9 +1,12 @@
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
+import type { CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
+
+const VAULT_MANAGER_ROLES = ['ADMIN', 'SUPERVISOR', 'DIRECTOR'];
 
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
@@ -15,18 +18,34 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
 };
+
+async function requireVaultManager(supabase: Awaited<ReturnType<typeof getSupabase>>) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Unauthorized');
+
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !profile || !VAULT_MANAGER_ROLES.includes(profile.role)) {
+        throw new Error('No tienes permisos para generar foliados.');
+    }
+}
 
 // -------------------------------------------------------------
 // POST: Generar Foliado Maestro de un Proyecto
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireVaultManager(supabase);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);
@@ -36,12 +55,14 @@ export async function generateProjectFolios(projectId: string) {
     }
 
     let globalPageNumber = 1;
-    const foliatedFiles = [];
+    const preparedFiles: Array<{ path: string; bytes: Uint8Array }> = [];
 
-    // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
+    // 2. Preparar todos los PDFs antes de escribir en Storage; un foliado parcial corrompe el expediente maestro.
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion || !latestVersion.file_path) {
+            throw new Error(`El documento "${doc.name}" no tiene una versión vigente para foliar.`);
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -50,7 +71,7 @@ export async function generateProjectFolios(projectId: string) {
 
         if (downloadError || !fileData) {
             console.error(`Error descargando ${doc.name}:`, downloadError);
-            continue; // Skip si hay error (podría ser un archivo corrupto)
+            throw new Error(`No se pudo descargar "${doc.name}" para generar el foliado.`);
         }
 
         const arrayBuffer = await fileData.arrayBuffer();
@@ -61,9 +82,13 @@ export async function generateProjectFolios(projectId: string) {
             const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
             const pages = pdfDoc.getPages();
 
+            if (pages.length === 0) {
+                throw new Error(`El archivo "${doc.name}" no contiene páginas para foliar.`);
+            }
+
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {
@@ -86,30 +111,37 @@ export async function generateProjectFolios(projectId: string) {
             const safeName = doc.name.replace(/[^a-zA-Z0-9-_\.]/g, '_');
             const newFilePath = `${projectId}/folios/${String(doc.order_number).padStart(3, '0')}_${safeName}.pdf`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('vault')
-                .upload(newFilePath, pdfBytes, {
-                    contentType: 'application/pdf',
-                    upsert: true // Sobreescribimos si ya existía el foliado anterior
-                });
-
-            if (uploadError) {
-                console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
-            } else {
-                foliatedFiles.push(newFilePath);
-            }
+            preparedFiles.push({ path: newFilePath, bytes: pdfBytes });
 
         } catch (pdfError) {
             console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
-            // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
+            throw new Error(`El archivo "${doc.name}" no es un PDF válido para el foliado maestro.`);
         }
     }
 
-    // 3. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
+    // 3. Subir solo cuando todos los documentos ya fueron foliados correctamente.
+    const foliatedFiles = [];
+    for (const file of preparedFiles) {
+        const { error: uploadError } = await supabase.storage
+            .from('vault')
+            .upload(file.path, file.bytes, {
+                contentType: 'application/pdf',
+                upsert: true // Sobreescribimos si ya existía el foliado anterior
+            });
+
+        if (uploadError) {
+            console.error(`Error subiendo foliado ${file.path}:`, uploadError);
+            throw new Error('No se pudo subir el foliado maestro completo. Intenta de nuevo.');
+        }
+
+        foliatedFiles.push(file.path);
+    }
+
+    // 4. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
 
     return { 
         success: true, 
-        message: `Foliado completado. Se foliaros ${globalPageNumber - 1} páginas en total.`,
+        message: `Foliado completado. Se foliaron ${globalPageNumber - 1} páginas en total.`,
         files: foliatedFiles
     };
 }

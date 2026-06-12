@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
@@ -42,16 +42,46 @@ const getSupabase = async () => {
                 async get(name: string) {
                     return (await cookies()).get(name)?.value;
                 },
-                async set(name: string, value: string, options: any) {
+                async set(name: string, value: string, options: CookieOptions) {
                     (await cookies()).set({ name, value, ...options });
                 },
-                async remove(name: string, options: any) {
+                async remove(name: string, options: CookieOptions) {
                     (await cookies()).delete({ name, ...options });
                 },
             },
         }
     );
 };
+
+type SupabaseServerClient = Awaited<ReturnType<typeof getSupabase>>;
+
+const VAULT_MANAGER_ROLES = new Set(['ADMIN', 'SUPERVISOR', 'DIRECTOR']);
+
+function getErrorMessage(error: unknown, fallback: string) {
+    return error instanceof Error ? error.message : fallback;
+}
+
+async function getAuthenticatedUser(supabase: SupabaseServerClient) {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) throw new Error("Unauthorized");
+    return user;
+}
+
+async function requireVaultManager(supabase: SupabaseServerClient) {
+    const user = await getAuthenticatedUser(supabase);
+
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (error || !profile || !VAULT_MANAGER_ROLES.has(profile.role)) {
+        throw new Error("No tienes permisos para modificar la bóveda.");
+    }
+
+    return user;
+}
 
 // -------------------------------------------------------------
 // GET: Obtener todos los documentos de la bóveda de un proyecto
@@ -70,7 +100,7 @@ export async function getProjectVaultDocuments(projectId: string) {
 
     // 2. Obtener la ÚLTIMA versión de cada documento para mostrar estado
     const results = await Promise.all((documents || []).map(async (doc) => {
-        const { data: latestVersion, error: verError } = await supabase
+        const { data: latestVersion } = await supabase
             .from('vault_document_versions')
             .select('*')
             .eq('vault_document_id', doc.id)
@@ -114,8 +144,7 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
     const supabase = await getSupabase();
     
     // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Unauthorized");
+    const user = await getAuthenticatedUser(supabase);
     
     // Marcar como validado
     const { error } = await supabase
@@ -139,10 +168,6 @@ export async function validateDocumentVersion(versionId: string, projectId: stri
 export async function uploadVaultDocumentVersion(formData: FormData) {
     const supabase = await getSupabase();
     
-    // Obtener usuario actual
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
-
     const file = formData.get('file') as File;
     const projectId = formData.get('projectId') as string;
     const vaultDocumentId = formData.get('vaultDocumentId') as string;
@@ -153,6 +178,19 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
     }
 
     try {
+        const user = await requireVaultManager(supabase);
+
+        const { data: vaultDoc, error: vaultDocError } = await supabase
+            .from('vault_documents')
+            .select('id')
+            .eq('id', vaultDocumentId)
+            .eq('project_id', projectId)
+            .single();
+
+        if (vaultDocError || !vaultDoc) {
+            throw new Error("El documento de bóveda no pertenece a este proyecto.");
+        }
+
         // 1. Determinar el próximo número de versión
         const { data: versions, error: verError } = await supabase
             .from('vault_document_versions')
@@ -196,9 +234,9 @@ export async function uploadVaultDocumentVersion(formData: FormData) {
         revalidatePath(`/projects/${projectId}`);
         return { success: true };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Upload error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error, "Error al subir documento.") };
     }
 }
 
@@ -216,18 +254,18 @@ export async function addVaultDocument(
     const supabase = await getSupabase();
     
     // Solo roles autorizados pueden crear contenedores
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Unauthorized" };
-
     if (!projectDocumentId) return { success: false, error: "Debe seleccionar un documento base" };
     if (!changeReason) return { success: false, error: "Debe proveer un motivo" };
 
     try {
+        const user = await requireVaultManager(supabase);
+
         // 1. Obtener la ruta del archivo del expediente digital
         const { data: sourceDoc, error: sourceError } = await supabase
             .from('project_documents')
             .select('file_path, file_name')
             .eq('id', projectDocumentId)
+            .eq('project_id', projectId)
             .single();
 
         if (sourceError || !sourceDoc || !sourceDoc.file_path) {
@@ -274,9 +312,9 @@ export async function addVaultDocument(
 
         revalidatePath(`/projects/${projectId}`);
         return { success: true, data: vaultDoc };
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Add Vault Document Error:", error);
-        return { success: false, error: error.message };
+        return { success: false, error: getErrorMessage(error, "Error al crear documento de bóveda.") };
     }
 }
 
@@ -306,11 +344,55 @@ export async function getProjectDocumentsForVault(projectId: string) {
     }
     
     // Formateamos para el frontend
-    return data.map((doc: any) => ({
-        id: doc.id,
-        name: doc.document_definitions?.name || doc.file_name || 'Documento sin nombre',
-        file_name: doc.file_name
-    }));
+    return data.map((doc) => {
+        const definition = Array.isArray(doc.document_definitions)
+            ? doc.document_definitions[0]
+            : doc.document_definitions;
+
+        return {
+            id: doc.id,
+            name: definition?.name || doc.file_name || 'Documento sin nombre',
+            file_name: doc.file_name
+        };
+    });
+}
+
+// -------------------------------------------------------------
+// GET: Crear URL firmada para una versión guardada en la bóveda
+// -------------------------------------------------------------
+export async function getVaultDocumentSignedUrl(filePath: string) {
+    const supabase = await getSupabase();
+
+    try {
+        await getAuthenticatedUser(supabase);
+
+        if (!filePath || filePath.includes('..')) {
+            throw new Error("Ruta de archivo inválida.");
+        }
+
+        const { data: version, error: versionError } = await supabase
+            .from('vault_document_versions')
+            .select('id')
+            .eq('file_path', filePath)
+            .limit(1)
+            .maybeSingle();
+
+        if (versionError) throw versionError;
+        if (!version) throw new Error("No se encontró la versión solicitada.");
+
+        const { data, error } = await supabase.storage
+            .from('vault')
+            .createSignedUrl(filePath, 300);
+
+        if (error || !data?.signedUrl) {
+            throw error || new Error("No se pudo generar la URL firmada.");
+        }
+
+        return { success: true, signedUrl: data.signedUrl };
+    } catch (error: unknown) {
+        console.error("Signed URL error:", error);
+        return { success: false, error: getErrorMessage(error, "No se pudo abrir el archivo.") };
+    }
 }
 
 

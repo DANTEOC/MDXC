@@ -14,7 +14,7 @@ import { History, FileText, CheckCircle, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
-import { getDocumentVersionHistory, VaultDocumentVersion } from '@/app/actions/vault-actions';
+import { getDocumentVersionHistory, getVaultDocumentSignedUrl } from '@/app/actions/vault-actions';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface VaultHistoryModalProps {
@@ -22,16 +22,34 @@ interface VaultHistoryModalProps {
     documentName: string;
 }
 
+interface VaultVersionHistoryItem {
+    id: string;
+    version_number: number;
+    file_path: string;
+    uploaded_at: string;
+    change_reason?: string | null;
+    is_validated?: boolean;
+    validated_at?: string | null;
+    uploader?: {
+        full_name?: string | null;
+        role?: string | null;
+    } | null;
+    validator?: {
+        full_name?: string | null;
+    } | null;
+}
+
 export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistoryModalProps) {
     const [open, setOpen] = useState(false);
-    const [history, setHistory] = useState<any[]>([]);
+    const [history, setHistory] = useState<VaultVersionHistoryItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [openingVersionId, setOpeningVersionId] = useState<string | null>(null);
 
     const loadHistory = async () => {
         setLoading(true);
         try {
             const data = await getDocumentVersionHistory(vaultDocumentId);
-            setHistory(data || []);
+            setHistory((data || []) as VaultVersionHistoryItem[]);
         } catch (error) {
             console.error(error);
         } finally {
@@ -43,6 +61,22 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
         setOpen(isOpen);
         if (isOpen) {
             loadHistory();
+        }
+    };
+
+    const handleOpenFile = async (version: VaultVersionHistoryItem) => {
+        setOpeningVersionId(version.id);
+        try {
+            const result = await getVaultDocumentSignedUrl(version.file_path);
+            if (result.success && result.signedUrl) {
+                window.open(result.signedUrl, '_blank', 'noopener,noreferrer');
+            } else {
+                alert(result.error || 'No se pudo abrir el archivo.');
+            }
+        } catch (error: unknown) {
+            alert(error instanceof Error ? error.message : 'No se pudo abrir el archivo.');
+        } finally {
+            setOpeningVersionId(null);
         }
     };
 
@@ -86,10 +120,14 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                     Subido el {format(new Date(version.uploaded_at), "d 'de' MMMM, yyyy 'a las' HH:mm", { locale: es })}
                                                 </p>
                                             </div>
-                                            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
-                                                <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/vault/${version.file_path}`} target="_blank" rel="noreferrer">
-                                                    <FileText className="h-3 w-3 mr-1" /> Ver archivo
-                                                </a>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs"
+                                                onClick={() => handleOpenFile(version)}
+                                                disabled={openingVersionId === version.id}
+                                            >
+                                                <FileText className="h-3 w-3 mr-1" /> {openingVersionId === version.id ? 'Abriendo...' : 'Ver archivo'}
                                             </Button>
                                         </div>
 
@@ -106,7 +144,7 @@ export function VaultHistoryModal({ vaultDocumentId, documentName }: VaultHistor
                                                 {version.is_validated ? (
                                                     <div className="flex items-center text-emerald-600">
                                                         <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                                                        Validado por {version.validator?.full_name || 'Analista'} el {format(new Date(version.validated_at), "dd/MM/yyyy")}
+                                                        Validado por {version.validator?.full_name || 'Analista'} el {version.validated_at ? format(new Date(version.validated_at), "dd/MM/yyyy") : 'fecha no disponible'}
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center text-amber-600">

@@ -1,6 +1,6 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
@@ -15,8 +15,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
@@ -36,12 +36,16 @@ export async function generateProjectFolios(projectId: string) {
     }
 
     let globalPageNumber = 1;
-    const foliatedFiles = [];
+    const foliatedFiles: string[] = [];
+    const errors: string[] = [];
 
     // 2. Iterar sobre cada documento para descargar, foliar y volver a subir
     for (const doc of documents) {
         const latestVersion = doc.latest_version;
-        if (!latestVersion || !latestVersion.file_path) continue;
+        if (!latestVersion || !latestVersion.file_path) {
+            errors.push(`${doc.name}: no tiene una versión con archivo para foliar.`);
+            continue;
+        }
 
         // A. Descargar el archivo original desde Storage
         const { data: fileData, error: downloadError } = await supabase.storage
@@ -50,7 +54,8 @@ export async function generateProjectFolios(projectId: string) {
 
         if (downloadError || !fileData) {
             console.error(`Error descargando ${doc.name}:`, downloadError);
-            continue; // Skip si hay error (podría ser un archivo corrupto)
+            errors.push(`${doc.name}: no se pudo descargar el archivo original.`);
+            continue;
         }
 
         const arrayBuffer = await fileData.arrayBuffer();
@@ -63,7 +68,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {
@@ -95,21 +100,31 @@ export async function generateProjectFolios(projectId: string) {
 
             if (uploadError) {
                 console.error(`Error subiendo foliado de ${doc.name}:`, uploadError);
+                errors.push(`${doc.name}: no se pudo subir el archivo foliado.`);
             } else {
                 foliatedFiles.push(newFilePath);
             }
 
         } catch (pdfError) {
             console.error(`El archivo ${doc.name} no parece ser un PDF válido.`, pdfError);
-            // Si no es PDF (ej. un excel o imagen), lo ignoramos para el foliado
+            errors.push(`${doc.name}: el archivo no es un PDF válido para foliado.`);
         }
     }
 
     // 3. Opcional: Podríamos guardar en la BD una bitácora de que se generó un foliado
 
+    if (errors.length > 0 || foliatedFiles.length === 0) {
+        return {
+            success: false,
+            message: `No se completó el foliado. ${errors.length > 0 ? errors.join(' ') : 'No se generó ningún archivo foliado.'}`,
+            files: foliatedFiles,
+            errors
+        };
+    }
+
     return { 
         success: true, 
-        message: `Foliado completado. Se foliaros ${globalPageNumber - 1} páginas en total.`,
+        message: `Foliado completado. Se foliaron ${globalPageNumber - 1} páginas en total.`,
         files: foliatedFiles
     };
 }

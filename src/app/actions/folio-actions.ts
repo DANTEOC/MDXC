@@ -1,9 +1,10 @@
 'use server';
 
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { getProjectVaultDocuments } from './vault-actions';
+import { requireProfileRole, VAULT_MANAGER_ROLES } from './action-auth';
 
 // -------------------------------------------------------------
 // HELPER: Inicializar Supabase Client
@@ -15,8 +16,8 @@ const getSupabase = async () => {
         {
             cookies: {
                 async get(name: string) { return (await cookies()).get(name)?.value; },
-                async set(name: string, value: string, options: any) { (await cookies()).set({ name, value, ...options }); },
-                async remove(name: string, options: any) { (await cookies()).delete({ name, ...options }); },
+                async set(name: string, value: string, options: CookieOptions) { (await cookies()).set({ name, value, ...options }); },
+                async remove(name: string, options: CookieOptions) { (await cookies()).delete({ name, ...options }); },
             },
         }
     );
@@ -27,6 +28,7 @@ const getSupabase = async () => {
 // -------------------------------------------------------------
 export async function generateProjectFolios(projectId: string) {
     const supabase = await getSupabase();
+    await requireProfileRole(supabase, VAULT_MANAGER_ROLES);
     
     // 1. Obtener todos los documentos del proyecto ordenados
     const documents = await getProjectVaultDocuments(projectId);
@@ -63,7 +65,7 @@ export async function generateProjectFolios(projectId: string) {
 
             // C. Estampar folio en cada página
             for (const page of pages) {
-                const { width, height } = page.getSize();
+                const { width } = page.getSize();
                 const folioText = `Folio: ${String(globalPageNumber).padStart(6, '0')}`;
                 
                 page.drawText(folioText, {
